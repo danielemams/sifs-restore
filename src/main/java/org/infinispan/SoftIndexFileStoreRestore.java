@@ -35,10 +35,10 @@ public class SoftIndexFileStoreRestore implements Runnable {
    @CommandLine.Parameters(paramLabel = "DIR", description = "The directory where cache persistence is - does not include cache name")
    File dataDir;
 
-   @CommandLine.Option(names = "-d", defaultValue = "data", description = "Name of the store data directory inside the cache named directory. Default is data")
+   @CommandLine.Option(names = "-d", description = "Name of the store data directory inside the cache named directory. Use this if your previous configuration defined an explicit data path")
    String dataDirName;
 
-   @CommandLine.Option(names = "-i", defaultValue = "index", description = "Name of the store index directory inside the cache named directory. Default is index")
+   @CommandLine.Option(names = "-i", description = "Name of the store index directory inside the cache named directory. Use this if your previous configuration defined an explicit index path")
    String indexDirName;
 
    @CommandLine.Option(names = "-f", defaultValue = "5", description = "How often message should be printed showing index or insert progress in seconds. Default is 5 seconds")
@@ -97,6 +97,14 @@ public class SoftIndexFileStoreRestore implements Runnable {
          System.out.println("Starting cache from data directory.. this may take some time especially if store index was not shut down cleanly");
 
          ConfigurationBuilder config = new ConfigurationBuilder();
+         Path dataPath = Path.of(dataDir.getAbsolutePath());
+         if (dataDirName != null) {
+            dataPath = dataPath.resolve(dataDirName);
+         }
+         Path indexPath = Path.of(dataDir.getAbsolutePath());
+         if (indexDirName != null) {
+            indexPath = indexPath.resolve(indexDirName);
+         }
          // We are forcing octet stream so we don't need user classes in classpath
          config.encoding()
                .mediaType(MediaType.APPLICATION_PROTOSTREAM);
@@ -104,8 +112,8 @@ public class SoftIndexFileStoreRestore implements Runnable {
                .remoteTimeout(updateFrequency, TimeUnit.SECONDS);
          config.persistence()
                .addSoftIndexFileStore()
-               .dataLocation(Path.of(dataDir.getAbsolutePath(), dataDirName).toString())
-               .indexLocation(Path.of(dataDir.getAbsolutePath(), indexDirName).toString());
+               .dataLocation(dataPath.toString())
+               .indexLocation(indexPath.toString());
 
          Cache<byte[], byte[]> cache = cacheManager.createCache(cacheName, config.build())
                .getAdvancedCache().withMediaType(MediaType.APPLICATION_OCTET_STREAM, MediaType.APPLICATION_OCTET_STREAM);
