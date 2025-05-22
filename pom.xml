@@ -10,8 +10,8 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <infinispan.version>16.0.0-SNAPSHOT</infinispan.version>
-        <!--<infinispan.version>15.2.1.Final</infinispan.version>-->
+        <!-- Update to latest version as necessary -->
+        <infinispan.version>15.0.15.Final</infinispan.version>
         <picocli.version>4.7.7</picocli.version>
     </properties>
 
@@ -41,6 +41,11 @@
             <groupId>info.picocli</groupId>
             <artifactId>picocli</artifactId>
             <version>${picocli.version}</version>
+        </dependency>
+        <!-- This dep is required when migrating server stored entries when query is available -->
+        <dependency>
+            <groupId>org.infinispan</groupId>
+            <artifactId>infinispan-remote-query-server</artifactId>
         </dependency>
     </dependencies>
 

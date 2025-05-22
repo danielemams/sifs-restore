@@ -15,7 +15,7 @@ import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.manager.DefaultCacheManager;
 import org.infinispan.manager.EmbeddedCacheManager;
-import org.infinispan.reactive.publisher.PublisherTransformers;
+import org.infinispan.query.remote.impl.persistence.PersistenceContextInitializerImpl;
 
 import io.reactivex.rxjava3.core.Flowable;
 import picocli.CommandLine;
@@ -69,8 +69,10 @@ public class SoftIndexFileStoreRestore implements Runnable {
       }
 
       GlobalConfigurationBuilder globalConfigurationBuilder = new GlobalConfigurationBuilder();
-      // Don't let the store unmarshall anything - just keep the raw bytes
       globalConfigurationBuilder.serialization()
+            // Query wraps byte arrays we need to be able to unmarshall that as well
+            .addContextInitializer(new PersistenceContextInitializerImpl())
+            // Don't let the store unmarshall anything - just keep the raw bytes
             .marshaller(new IdentityMarshaller());
       try (RemoteCacheManager remoteCacheManager = rebuildIndexOnly ? null : new RemoteCacheManager();
            EmbeddedCacheManager cacheManager = new DefaultCacheManager(globalConfigurationBuilder.build())) {
@@ -97,7 +99,7 @@ public class SoftIndexFileStoreRestore implements Runnable {
          ConfigurationBuilder config = new ConfigurationBuilder();
          // We are forcing octet stream so we don't need user classes in classpath
          config.encoding()
-               .mediaType(MediaType.APPLICATION_OCTET_STREAM);
+               .mediaType(MediaType.APPLICATION_PROTOSTREAM);
          config.clustering()
                .remoteTimeout(updateFrequency, TimeUnit.SECONDS);
          config.persistence()
@@ -128,30 +130,28 @@ public class SoftIndexFileStoreRestore implements Runnable {
    }
 
    private void performRemoteUpload(Cache<byte[], byte[]> cache, RemoteCache<byte[], byte[]> remoteCache, int cacheSize) {
-         System.out.println("\n\n\n   ********************************  \n\n\n");
-         System.out.println("Starting remote upload using " + parallelInserts + " parallel inserts.. this will take some time (Updates every " + updateFrequency + " seconds)");
+      System.out.println("\n\n\n   ********************************  \n\n\n");
+      System.out.println("Starting remote upload using " + parallelInserts + " parallel inserts.. this will take some time (Updates every " + updateFrequency + " seconds)");
 
-         long beginTime = System.nanoTime();
+      long beginTime = System.nanoTime();
+      // In case if there was an exception we have to use using to close the iterator so the cache can be stopped
+      long total = Flowable.using(() -> cache.getAdvancedCache().cacheEntrySet().stream(), stream ->
+                        Flowable.fromStream(stream)
+                              .parallel(parallelInserts)
+                              .concatMap(ce -> Flowable.fromCompletionStage(
+                                    remoteCache.putIfAbsentAsync(ce.getKey(), ce.getValue(), ce.getLifespan(), TimeUnit.MILLISECONDS)
+                                          .thenApply(Objects::nonNull)))
+                              .sequential()
+                  , AutoCloseable::close)
+            // This will send a message every step as 5% of the updates are done
+            .buffer(updateFrequency, TimeUnit.SECONDS).reduce(0, (count, l) -> {
+               count += l.size();
+               System.out.println("completed " + count + " (" + (float) 100 * count / cacheSize + "%)");
+               return count;
+            })
+            .blockingGet();
 
-         long total = Flowable.fromPublisher(cache.getAdvancedCache().cachePublisher()
-                     .entryPublisher(PublisherTransformers.identity())
-                     .publisherWithoutSegments())
-               .parallel(parallelInserts)
-               .concatMap(ce -> Flowable.fromCompletionStage(remoteCache.putIfAbsentAsync(
-                     ce.getKey(), ce.getValue(), ce.getLifespan(), TimeUnit.MILLISECONDS).thenApply(Objects::nonNull)))
-               .sequential()
-               // This will send a message every step as 5% of the updates are done
-               .buffer(updateFrequency, TimeUnit.SECONDS)
-               .reduce(0, (count, l) -> {
-                  count += l.size();
-                  System.out.println("completed " + count + " (" + (float) 100 * count / cacheSize  + "%)");
-                  return count;
-               })
-               .blockingGet();
-
-
-         System.out.println("Loading complete... loaded " + total + " entries in " +
-               TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - beginTime) + " ms");
-         System.out.println("\n\n\n   ********************************  \n\n\n");
+      System.out.println("Loading complete... loaded " + total + " entries in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - beginTime) + " ms");
+      System.out.println("\n\n\n   ********************************  \n\n\n");
    }
 }
