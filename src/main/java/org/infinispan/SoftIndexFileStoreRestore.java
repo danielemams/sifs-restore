@@ -11,6 +11,7 @@ import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.commons.dataconversion.MediaType;
 import org.infinispan.commons.marshall.IdentityMarshaller;
+import org.infinispan.commons.marshall.WrappedBytes;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.manager.DefaultCacheManager;
@@ -107,7 +108,7 @@ public class SoftIndexFileStoreRestore implements Runnable {
          }
          // We are forcing octet stream so we don't need user classes in classpath
          config.encoding()
-               .mediaType(MediaType.APPLICATION_PROTOSTREAM);
+               .mediaType(MediaType.APPLICATION_OBJECT);
          config.clustering()
                .remoteTimeout(updateFrequency, TimeUnit.SECONDS);
          config.persistence()
@@ -115,8 +116,8 @@ public class SoftIndexFileStoreRestore implements Runnable {
                .dataLocation(dataPath.toString())
                .indexLocation(indexPath.toString());
 
-         Cache<byte[], byte[]> cache = cacheManager.createCache(cacheName, config.build())
-               .getAdvancedCache().withMediaType(MediaType.APPLICATION_OCTET_STREAM, MediaType.APPLICATION_OCTET_STREAM);
+         Cache<Object, Object> cache = cacheManager.createCache(cacheName, config.build())
+               .getAdvancedCache().withMediaType(MediaType.APPLICATION_OBJECT, MediaType.APPLICATION_OBJECT);
 
          System.out.println("\n\n\n   ********************************  \n\n\n");
          System.out.print("Cache started in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - beginTime) +
@@ -137,7 +138,7 @@ public class SoftIndexFileStoreRestore implements Runnable {
       }
    }
 
-   private void performRemoteUpload(Cache<byte[], byte[]> cache, RemoteCache<byte[], byte[]> remoteCache, int cacheSize) {
+   private void performRemoteUpload(Cache<Object, Object> cache, RemoteCache<byte[], byte[]> remoteCache, int cacheSize) {
       System.out.println("\n\n\n   ********************************  \n\n\n");
       System.out.println("Starting remote upload using " + parallelInserts + " parallel inserts.. this will take some time (Updates every " + updateFrequency + " seconds)");
 
@@ -147,7 +148,8 @@ public class SoftIndexFileStoreRestore implements Runnable {
                         Flowable.fromStream(stream)
                               .parallel(parallelInserts)
                               .concatMap(ce -> Flowable.fromCompletionStage(
-                                    remoteCache.putIfAbsentAsync(ce.getKey(), ce.getValue(), ce.getLifespan(), TimeUnit.MILLISECONDS)
+                                    remoteCache.putIfAbsentAsync(toBytes(ce.getKey()),
+                                                toBytes(ce.getValue()), ce.getLifespan(), TimeUnit.MILLISECONDS)
                                           .thenApply(Objects::nonNull)))
                               .sequential()
                   , AutoCloseable::close)
@@ -161,5 +163,15 @@ public class SoftIndexFileStoreRestore implements Runnable {
 
       System.out.println("Loading complete... loaded " + total + " entries in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - beginTime) + " ms");
       System.out.println("\n\n\n   ********************************  \n\n\n");
+   }
+
+   private byte[] toBytes(Object obj) {
+      if (obj instanceof byte[] bytes) {
+         return bytes;
+      }
+      if (obj instanceof WrappedBytes wb) {
+         return wb.getBytes();
+      }
+      throw new IllegalArgumentException("Invalid object type returned: " + obj);
    }
 }
