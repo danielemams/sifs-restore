@@ -78,6 +78,9 @@ public class SoftIndexFileStoreRestore implements Runnable {
       } else {
          System.out.println("Using hotrod-client.properties for setup of client located in base classpath of project");
       }
+      Thread currentThread = Thread.currentThread();
+      // Allow shutdown to interrupt main thread to allow for stopping the transfer cleanly without a SIG_KILL
+      Runtime.getRuntime().addShutdownHook(new Thread(currentThread::interrupt));
 
       GlobalConfigurationBuilder globalConfigurationBuilder = new GlobalConfigurationBuilder();
       globalConfigurationBuilder.serialization()
