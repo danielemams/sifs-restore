@@ -1,10 +1,16 @@
 package org.infinispan;
 
+import static org.infinispan.client.hotrod.RemoteCacheManager.HOTROD_CLIENT_PROPERTIES;
+
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
+
+import javax.net.ssl.TrustManager;
 
 import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.RemoteCache;
@@ -12,6 +18,7 @@ import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.commons.dataconversion.MediaType;
 import org.infinispan.commons.marshall.IdentityMarshaller;
 import org.infinispan.commons.marshall.WrappedBytes;
+import org.infinispan.commons.util.FileLookupFactory;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.manager.DefaultCacheManager;
@@ -51,6 +58,9 @@ public class SoftIndexFileStoreRestore implements Runnable {
    @CommandLine.Option(names = "-p", defaultValue = "16", description = "How many parallel remote puts can be inflight. Only used if rebuildIndexOnly is not set.")
    int parallelInserts;
 
+   @CommandLine.Option(names = "-z", defaultValue = "false", description = "Trust all server certificates.")
+   boolean zeroTrust;
+
 
    public static void main(String[] args) {
       int exitCode = new CommandLine(new SoftIndexFileStoreRestore()).execute(args);
@@ -75,7 +85,19 @@ public class SoftIndexFileStoreRestore implements Runnable {
             .addContextInitializer(new PersistenceContextInitializerImpl())
             // Don't let the store unmarshall anything - just keep the raw bytes
             .marshaller(new IdentityMarshaller());
-      try (RemoteCacheManager remoteCacheManager = rebuildIndexOnly ? null : new RemoteCacheManager();
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder remoteBuilder = new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
+      try (InputStream is = FileLookupFactory.newInstance().lookupFile(HOTROD_CLIENT_PROPERTIES, this.getClass().getClassLoader())) {
+         Properties properties = new Properties();
+         properties.load(is);
+         remoteBuilder.withProperties(properties);
+      } catch (IOException e) {
+         throw new RuntimeException(e);
+      }
+      if (zeroTrust) {
+         SSLContextSettings settings = SSLContextSettings.getInstance("TLS", null, new TrustManager[]{new ZeroSecurityTrustManager()}, null, new ZeroSecurityHostnameVerifier());
+         remoteBuilder.security().ssl().sslContext(settings.getSslContext());
+      }
+      try (RemoteCacheManager remoteCacheManager = rebuildIndexOnly ? null : new RemoteCacheManager(remoteBuilder.build());
            EmbeddedCacheManager cacheManager = new DefaultCacheManager(globalConfigurationBuilder.build())) {
          RemoteCache<byte[], byte[]> remoteCache;
          if (!rebuildIndexOnly) {

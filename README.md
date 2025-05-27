@@ -109,4 +109,6 @@ Usage: <main class> [-r] [-d=<dataDirName>] [-f=<updateFrequency>]
                             used if rebuildIndexOnly is not set.
   -r                      Whether the index should only rebuilt and skip
                             writing the contents to a remote server.
+                            
+  -z                      Trusts all server certificates
 ```
