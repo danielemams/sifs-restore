@@ -98,7 +98,8 @@ public class SoftIndexFileStoreRestore implements Runnable {
       }
       if (zeroTrust) {
          SSLContextSettings settings = SSLContextSettings.getInstance("TLS", null, new TrustManager[]{new ZeroSecurityTrustManager()}, null, new ZeroSecurityHostnameVerifier());
-         remoteBuilder.security().ssl().sslContext(settings.getSslContext());
+         remoteBuilder.security().ssl().sslContext(settings.getSslContext())
+                 .sniHostName("example-infinispan-external-dgtest.apps.rosa.d4f36-eufje-94w.zcna.p3.openshiftapps.com");;
       }
       try (RemoteCacheManager remoteCacheManager = rebuildIndexOnly ? null : new RemoteCacheManager(remoteBuilder.build());
            EmbeddedCacheManager cacheManager = new DefaultCacheManager(globalConfigurationBuilder.build())) {
